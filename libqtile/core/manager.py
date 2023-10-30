@@ -107,6 +107,44 @@ class Qtile(CommandObject):
         self._stopped_event: asyncio.Event | None = None
 
         self.server = IPCCommandServer(self)
+    
+    def combine_and_grab_keys(self, keys: list[Key | KeyChord], mappings) -> list[Key | KeyChord]:
+        """
+        - add all the keys to mappings
+        - combine keychords with any pre-existing keychords
+        - return the values of mappings, so this function can be used to combine keychords recursively
+        """
+        
+        for key in keys:
+            
+            mapkey = self.core.lookup_key(key)
+            
+            if mapkey in mappings and isinstance(key, KeyChord) and isinstance(mappings[mapkey], KeyChord):
+                # if both this and the pre-existing binding are keychords, combine the two keychords
+
+                mappings[mapkey] = KeyChord( modifiers = key.modifiers,
+                                             key = key.key,
+                                             submappings = self.combine_and_grab_keys( mappings[mapkey].submappings+key.submappings, {} ),
+                                             # note
+                                                 # mappings[mapkey] comes before key in the call, so this way any conflicting 
+                                                 # entries will have the new key entries overwrite any previous mappings entries.
+
+                                             mode = key.mode )
+            else:
+                # simply overwrite the previous binding             
+                mappings[mapkey] = key
+
+        return list(mappings.values())
+        
+    def reset_and_grab_keys(self):
+        
+            # create the self.keys_map, combining any conflicting key chords appropriately
+            self.combine_and_grab_keys(self.config.keys, self.keys_map)
+            
+            # actually grab the keys
+            self.grab_keys()
+
+        
 
     def load_config(self, initial: bool = False) -> None:
         try:
@@ -140,8 +178,9 @@ class Qtile(CommandObject):
         self._process_screens(reloading=not initial)
 
         # Map and Grab keys
-        for key in self.config.keys:
-            self.grab_key(key)
+        # for key in self.config.keys:
+        #     self.grab_key(key)
+        self.reset_and_grab_keys()
 
         for button in self.config.mouse:
             self.grab_button(button)
@@ -515,8 +554,9 @@ class Qtile(CommandObject):
                 self.grab_chord(chord)
                 break
         else:
-            for key in self.config.keys:
-                self.grab_key(key)
+            # for key in self.config.keys:
+            #     self.grab_key(key)
+            self.reset_and_grab_keys()
 
     @expose_command()
     def ungrab_all_chords(self) -> None:
@@ -524,8 +564,9 @@ class Qtile(CommandObject):
         hook.fire("leave_chord")
         self.ungrab_keys()
         self.chord_stack.clear()
-        for key in self.config.keys:
-            self.grab_key(key)
+        # for key in self.config.keys:
+        #     self.grab_key(key)
+        self.reset_and_grab_keys()
 
     def grab_button(self, button: Mouse) -> None:
         """Grab the given mouse button event"""
